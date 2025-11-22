@@ -15,8 +15,19 @@
 
 FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu20.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget sudo binutils git ninja-build curl wget && \
+RUN apt-get update && apt-get install -y --no-install-recommends sudo binutils git ninja-build curl wget zsh vim graphviz && \
     rm -rf /var/lib/apt/lists/*
+
+RUN chsh -s $(which zsh) root
+
+# Download and run the Oh My Zsh installer script
+# The 'sh -c "$(curl...)"' command runs the installation
+# 'RUN_OH_MY_ZSH=no' prevents the interactive zsh prompt from running during build
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+# (Optional) You can add custom configuration to the .zshrc file here.
+# For example, to set a theme (replace 'agnoster' with your desired theme)
+RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc
 
 RUN wget -c https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
     mv Miniconda3-latest-Linux-x86_64.sh ~/Miniconda3-latest-Linux-x86_64.sh && \
@@ -41,3 +52,6 @@ ENV LD_LIBRARY_PATH=/mirage/deps/z3/build/:$LD_LIBRARY_PATH
 
 WORKDIR /mirage
 #RUN chmod -R a+w /usr/mirage
+
+# Set the default command to start the zsh shell when the container runs
+CMD ["zsh"]
