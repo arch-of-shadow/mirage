@@ -147,15 +147,40 @@ try:
     # Attempt to run a Rust command to check if Rust is installed
     subprocess.check_output(['cargo', '--version'])
 except FileNotFoundError:
-    print("Rust/Cargo not found, installing it...")
-    # Rust is not installed, so install it using rustup
+    print("Rust/Cargo not found, checking for installers...")
+
+    # 1. Define the commands for both tools
+    rustup_url = "https://sh.rustup.rs"
+    install_cmd = None
+
+    # 2. Check which tool is available using shutil (cleaner than try/catch on subprocess)
+    if shutil.which("curl"):
+        print("Found 'curl'. Using it to install Rust...")
+        install_cmd = f"curl {rustup_url} -sSf | sh -s -- -y"
+    elif shutil.which("wget"):
+        print("Found 'wget'. Using it to install Rust...")
+        # -qO- outputs to stdout, similar to curl
+        install_cmd = f"wget -qO- {rustup_url} | sh -s -- -y"
+    else:
+        print("Error: Neither 'curl' nor 'wget' was found. Cannot install Rust.")
+        sys.exit(1)
+
+    # 3. Execute the chosen command
     try:
-        subprocess.run("curl https://sh.rustup.rs -sSf | sh -s -- -y", shell=True, check=True)
+        # We use shell=True because of the pipe '|'
+        subprocess.run(install_cmd, shell=True, check=True)
         print("Rust and Cargo installed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error: {e}")
-    # Add the cargo binary directory to the PATH
-    os.environ["PATH"] = f"{os.path.join(os.environ.get('HOME', '/root'), '.cargo', 'bin')}:{os.environ.get('PATH', '')}"
+        print(f"Installation failed with error code {e.returncode}.")
+        print("Please check your internet connection or install Rust manually.")
+        sys.exit(1)
+
+    # 4. Add the cargo binary directory to the PATH (for the current process)
+    cargo_bin = os.path.join(os.environ.get('HOME', '/root'), '.cargo', 'bin')
+    os.environ["PATH"] = f"{cargo_bin}:{os.environ.get('PATH', '')}"
+
+    # Verify availability immediately (Optional debug step)
+    print(f"Updated PATH with: {cargo_bin}")
 
 mirage_path = path.dirname(__file__)
 # z3_path = os.path.join(mirage_path, 'deps', 'z3', 'build')
