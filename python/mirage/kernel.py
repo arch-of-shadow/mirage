@@ -1,3 +1,4 @@
+from pathlib import Path
 import torch
 
 import os
@@ -557,6 +558,7 @@ class KNGraph:
         use_cached_graphs: bool = True,
         save_codes: bool = False,
         is_formal_verified: bool = False,
+        graph_visualization_dir: Path = None,
     ):
         if use_graph_dataset:
             cached_graph = graph_dataset.find(
@@ -593,6 +595,16 @@ class KNGraph:
         )
         all_graphs = [KNGraph(g) for g in cygraphs]
         print("Finished search, discovering {} mugraphs ...".format(len(all_graphs)))
+
+        if graph_visualization_dir is not None:
+            os.makedirs(graph_visualization_dir, exist_ok=True)
+            for idx, g in enumerate(all_graphs):
+                file_name = os.path.join(
+                    graph_visualization_dir, f"mugraph_{idx}"
+                )
+                g.visualize(file_name)
+            exit(0)
+
         if backend == "cuda":
             # profile and use the best graph
             best_graph, best_perf = None, float("inf")

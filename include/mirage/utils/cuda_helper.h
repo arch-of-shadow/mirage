@@ -45,6 +45,12 @@ namespace mirage {
     }                                                                          \
   } while (0)
 
+#ifdef MIRAGE_USE_FAKE_CUDA
+#define checkCUDA(status)                                                      \
+  do {                                                                         \
+    /* nothing */                                                              \       
+  } while (0)
+#else
 #define checkCUDA(status)                                                      \
   do {                                                                         \
     std::stringstream _error;                                                  \
@@ -53,6 +59,7 @@ namespace mirage {
       FatalError(_error.str());                                                \
     }                                                                          \
   } while (0)
+#endif // MIRAGE_USE_FAKE_CUDA
 
 template <typename T>
 CUTLASS_DEVICE T warp_uniform(T value) {

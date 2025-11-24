@@ -84,19 +84,7 @@ public:
 
 ### 2.3 Putting it together (The Example)
 
-For our RMSNorm + Linear example, a Mirage-generated MuGraph might look like this:
-
-1.  **Kernel Graph**: Contains a single `KNCustomizedOp`.
-    *   Inputs: `X`, `W` (DTensors).
-    *   Output: `Y` (DTensor).
-2.  **Thread Block Graph** (inside the `KNCustomizedOp`):
-    *   `TBInputOp`: Load a tile of `X` into Shared Memory (`STensor_X`).
-    *   `TBInputOp`: Load a tile of `W` into Shared Memory (`STensor_W`).
-    *   `TBMatmulOp`: Compute `STensor_X * STensor_W` -> `STensor_Acc`.
-    *   `TBReductionOp`: Compute RMS statistics on `STensor_X` (or `STensor_Acc` depending on the discovered schedule).
-    *   `TBOutputOp`: Store the result back to Global Memory.
-
-You can inspect the graph structure using the following script:
+We can inspect the graph structure using the following script:
 
 #### Creating from C++
 
@@ -212,29 +200,164 @@ We'll dive into `KernelGraphGenerator` in the next section.
 The core algorithm is a backtracking search that incrementally builds the MuGraph. It starts with an empty graph (containing only input tensors) and tries to append operators until the graph produces the desired output.
 
 **Code Snippet (`src/search/search.cc`, `include/mirage/search/search.h`)**:
+
+
+#### Preprocess
+
+`KernelGraphGenerator::KernelGraphGenerator(..)` calls `preprocess`:
+
+```cpp
+void KernelGraphGenerator::preprocess(kernel::Graph const &computation_graph) {
+  // 1. Get input attributes: enumerate computation_graph.operators, check op_type == KN_INPUT_OP, and store in computation_graph_input_attrs
+  //..
+
+  // 2. Get possible abstract expressions, showing the kernel graph's computation tasks.
+  //    They will be used for pruning illegal graphs during search.
+  //    
+  abstract_expr_eval(computation_graph, computation_graph_exprs);
+
+  // 3. Some ”range“ things. I'm not sure what they are for.
+  // ..
+
+  // 4. Get output expressions (abstract)
+  for (kernel::KNOperator *op : computation_graph.operators) {
+    if (op->op_type == type::KNOperatorType::KN_OUTPUT_OP) {
+      computation_graph_output_exprs.push_back(
+          computation_graph_exprs.at(op->input_tensors[0].guid));
+    }
+  }
+  // 4.5  Initalize final expressions
+  //      THIS CONSTRUCTS AN E-GRAPH
+  for (auto const &final_expr : computation_graph_output_exprs) {
+    initialize_final_expr(final_expr);
+    // ⤷ get_egraph(expr->to_egg().c_str()) // This build an e-graph!
+  }
+  
+  // 5. Initialize verifier, formal / probabilistic
+  // ..
+}
+```
+
+#### Generate Kernel Graphs
+
+```cpp
+void KernelGraphGenerator::generate_kernel_graphs() {
+  
+  // Create a SearchContext
+  SearchContext c;
+  c.level = SearchLevel::LV_KERNEL;
+  c.kn_graph = std::make_shared<kernel::Graph>();
+
+  std::vector<SerializedSearchContext> verified_graphs;
+
+  // This is the main backtracking search function
+  generate_next_operator(
+      c,
+      [this](SearchContext const &c) {
+        return c.level == SearchLevel::LV_KERNEL &&
+                this->verify(*c.kn_graph);
+      },
+      verified_graphs,
+      /*search_depth=*/0,
+      /*is_a_new_thread_start=*/true);
+
+
+  save_results();
+}
+```
+
+
 ```cpp
 void KernelGraphGenerator::generate_next_operator(SearchContext &c, ...) {
     // 1. Check if we found a valid graph
     if (verify(c)) {
-        verified_graphs.push_back(c);
+        verified_graphs.push_back(SerializedSearchContext(c));
         return;
     }
 
+    // 2. TODO: Something about abstract expr
+    std::unordered_map<type::GuidType, std::shared_ptr<AbstractExpr const>> algebraic_expr;
+    abstract_expr_eval(*c.kn_graph, algebraic_expr);
+    if (c.tb_graph) {
+      abstract_expr_eval(*c.tb_graph, algebraic_expr);
+    }
+
+    // 2.5 Lambda: check if adding an operator yields a valid abstract expression
+    //     What is valid? check_abstract_expr checks if the expression is an subexpr to any final exprs
+  
+    auto infer_and_check_abstract_expr = [&](auto const &input_tensors,
+                                           auto op_type) {
+      std::vector<std::shared_ptr<AbstractExpr const>> input_exprs =
+          vector_map(input_tensors,
+                    [&](auto const &t) { return algebraic_expr.at(t.guid); });
+      std::shared_ptr<AbstractExpr const> expr =
+          get_abstract_expr(op_type, input_tensors, input_exprs);
+      return check_abstract_expr(expr);
+    };
+
+
     // 2. Try adding a Kernel Operator (KNOperator)
     for (type::KNOperatorType op_type : dim_strategy.get_knop_cand()) {
-        // ... generate candidates ...
-        KNOperator *new_op = create_op(*c.kn_graph, op_type, input_tensors);
-        if (new_op) {
+        // Case K1: finish and verify the current graph
+        if (op_type != type::KNOperatorType::KN_CUSTOMIZED_OP) {
+          // Case K2: generate a pre-defined kernel operator
+
+          // .. Some checking
+          // Add to the graph
+          KNOperator *new_op = create_op(*c.kn_graph, op_type, input_tensors);
+          if (new_op) {
             c.kn_graph->operators.push_back(new_op);
-            // Recurse
-            generate_next_operator(c, ...);
-            // Backtrack
+            // Search deeper
+            generate_next_operator(
+                c, verify, verified_graphs, search_depth + 1);
+          }
+          // Backtrack
+          while (c.kn_graph->operators.back() != old_last_op) {
+            delete c.kn_graph->operators.back();
             c.kn_graph->operators.pop_back();
+          }
+        } else {
+          // Case K3: generate a graph-def kernel operator
+          // .. Some checking
+          
+          // Enumerate grid_dim, block_dim, input_map, forloop_dim, forloop_range
+          for (dim3 grid_dim : dim_strategy.get_grid_dim_cand(..)) {
+            for (dim3 block_dim :
+                 dim_strategy.get_block_dim_cand(..)) {
+              for (std::vector<int3> const &input_map :
+                   dim_strategy.get_input_map_cand(..)) {
+                for (std::vector<int> const &forloop_dim :
+                     dim_strategy.get_forloop_dim_cand(..)) {
+                  for (int forloop_range :
+                       dim_strategy.get_forloop_range_cand(..)) {
+                    c.tb_graph = std::make_shared<threadblock::Graph>(
+                        grid_dim,
+                        block_dim,
+                        forloop_range,
+                        config.reduction_dimx);
+                    
+                    // Create input tensors
+                    // ..
+
+                    c.level = SearchLevel::LV_THREADBLOCK;
+                    // Search deeper
+                    generate_next_operator(
+                        c, verify, verified_graphs, search_depth + 1);
+                    
+                    // Backtrack
+                    c.level = SearchLevel::LV_KERNEL;
+                    c.tb_graph = nullptr;
+                  }
+                }
+              }
+            }
+          }
         }
+
     }
     
     // 3. Try adding a Customized Operator (Thread Block Graph Search)
-    // This triggers a nested search for the inner Thread Block Graph
+    //    I think this looks very similar to the Kernel Search, except no graph-def kernels
     // ...
 }
 ```
@@ -249,7 +372,7 @@ To make the search efficient, Mirage uses `DimStrategy` to propose only "promisi
 **Code Snippet (`src/search/dim_strategy.cc`)**:
 ```cpp
 std::vector<type::KNOperatorType> DimStrategy::get_knop_cand() {
-  // Returns a list of operators to explore (e.g., MATMUL, EXP, ADD)
+  // Returns a list of operators to explore (e.g., MATMUL, EXP, ADD), random_shuffled
   return config.knop_to_explore;
 }
 
@@ -261,13 +384,42 @@ std::vector<dim3> DimStrategy::get_grid_dim_cand(std::vector<DTensor> const &ten
 
 ### 3.3 Pruning and Verification
 
-The search space is huge. Mirage uses **Abstract Interpretation** to prune invalid branches early. It maintains an abstract state (e.g., "this tensor represents $X \times W$") and checks if adding an operator brings the state closer to the target expression.
+The search space is huge. Mirage uses **Abstract Interpretation** to prune invalid branches early. It maintains an abstract state (e.g., "this tensor represents $X \times W$") and checks if adding an operator gives an subexpr of any final expressions.
+
+The core function here is `check_abstract_expr`:
+
+```cpp
+bool KernelGraphGenerator::check_abstract_expr(std::shared_ptr<AbstractExpr const> expr, ..) {
+  for (auto const &final_expr : computation_graph_output_exprs) {
+    if (subexpr_to_final_expr(expr)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::vector<bool> subexpr_to_final_expr(
+    std::vector<std::shared_ptr<AbstractExpr const>> const &exprs) {
+  // The `egg_equiv` functions use e-graph's pattern matching to get the expressions that appear in the e-graph, indicating equivalance to any sub-expr of final expressions.
+  bool *results_in_raw_array =
+      egg_equiv(exprs_c_str, static_cast<int>(exprs.size()));
+  // ..
+}
+```
+
+For implementation of `egg_equiv`, refer to `src/search/abstract_expr/abstract_subexpr/src/lib.rs`. [`cpp_examples/egg_tests.cc`](../../cpp_examples/egg_tests.cc) provides an example of how the e-graph things work here, run the script to try:
+
+```bash
+// THIS REQUIRES libcuda.so
+```
 
 Once a complete graph is generated, the **Verifier** (`src/search/verification`) checks if it is functionally equivalent to the user's specification.
 
+TODO: Add verification details.
+
 ## 4. Compiler Pipeline
 
-When you run `mi.superoptimize(graph)`, the following pipeline executes:
+When you run `mi.superoptimize(graph)` (defined in [`python/mirage/kernel.py`](../../python/mirage/kernel.py)), the following pipeline executes:
 
 1.  **Input Specification**: You define the target computation (e.g., RMSNorm + Linear) using the Mirage Python API.
 2.  **Search (`src/search`)**:
@@ -285,6 +437,115 @@ When you run `mi.superoptimize(graph)`, the following pipeline executes:
     *   The transpiler outputs a `.cu` file.
     *   NVCC compiles this file into a binary.
     *   Mirage loads and executes the binary.
+
+For details,
+
+```python
+class KNGraph:
+  def superoptimize(
+    self,
+    imaps: list = None,
+    omaps: list = None,
+    griddims: list = None,
+    blockdims: list = None,
+    fmaps: list = None,
+    franges: list = None,
+    verbose: bool = False,
+    config: str = None,
+    backend: str = "cuda",
+    warmup_iters: int = 16,
+    profile_iters: int = 1000,
+    use_graph_dataset: bool = True,
+    use_cached_graphs: bool = True,
+    save_codes: bool = False,
+    is_formal_verified: bool = False,
+  ):
+    # Some checkpoint handling
+    # ..
+
+    # Search for mugraphs
+    cygraphs = search(
+        self.cygraph,
+        backend=backend,
+        imaps=imaps,
+        omaps=omaps,
+        griddims=griddims,
+        blockdims=blockdims,
+        fmaps=fmaps,
+        franges=franges,
+        previous_checkpoint=previous_checkpoint,
+        verbose=verbose,
+        default_config=config,
+        is_formal_verified=is_formal_verified,
+    )
+    all_graphs = [KNGraph(g) for g in cygraphs]
+    print("Finished search, discovering {} mugraphs ...".format(len(all_graphs)))
+    
+    # Backend-specific profiling and selection
+    if backend == "cuda":
+        # profile and use the best graph
+        # ..
+        g.compile(
+            async_=True,
+            inputs=input_tensors,
+            pipeline_stages=pipeline_stages,
+            num_warp_groups=num_warp_groups,
+        )
+        starter = torch.cuda.Event(enable_timing=True)
+        ender = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        starter.record()
+        for _ in range(profile_iters):
+            g(inputs=input_tensors)
+        ender.record()
+        torch.cuda.synchronize()
+        perf = starter.elapsed_time(ender) / profile_iters
+        print("muGraph {}: profiled performance (ms) = {}".format(idx, perf))
+        if perf < best_perf:
+            best_graph, best_perf = g, perf
+        return best_graph
+    elif backend == "nki":
+        # ..
+    elif backend == "triton":
+        # ..
+        return best_graph
+    else:
+        assert False, "Unsupported backend"
+        return None
+```
+
+
+For running on a non-GPU machine, you can use the `FAKE_GPU` option in `config.cmake`:
+
+```
+python3 tutorial/c1_architecture/run_search.py
+```
+
+But to my suprise, it gives:
+```
+Mirage::DeviceMemoryManager: gpu_id(0) num_gpus(1)========== Search Configuration ==========
+  max num threadblock graph op: 9
+  max num kernel_graph op: 5
+  max num threadblock graphs: 1
+  max num threadblock graph inputs: 3
+  max num threadblock graph outputs: 2
+  search_thread: 16
+  imaps to explore:
+  imap combs to explore:
+  omaps to explore:
+  grid dims to explore:
+  block dims to explore:
+  fmaps to explore:
+  franges to explore:4 16 64 
+num_thread = 16
+num_tasks = 0 tasks901, Random tests: 404, Valid mugraphs: 0, Time: 7.874953
+
+[Search] Second step finished. Time elapsed: 7.921125sec
+[Search] Total states explored: 53934
+[Search] Random tests performed: 404
+[Serach] Valid kernel graphs explored: 0
+Finished search, discovering 0 mugraphs ...
+```
 
 ## Summary
 

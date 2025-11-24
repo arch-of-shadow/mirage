@@ -237,6 +237,7 @@ try:
         [
             "cmake",
             "..",
+            "-GNinja",
             "-DCMAKE_BUILD_TYPE=Debug",
             "-DZ3_CXX_INCLUDE_DIRS=" + z3_path + "/include/",
             "-DZ3_LIBRARIES=" + path.join(z3_path, "lib", "libz3.so"),
@@ -250,8 +251,8 @@ try:
         cwd=build_dir,
         env=os.environ.copy(),
     )
-    subprocess.check_call(["make", "-j8"], cwd=build_dir, env=os.environ.copy())
-    print("Mirage runtime library built successfully.")
+    subprocess.check_call(["ninja"], cwd=build_dir, env=os.environ.copy())
+    print("Mirage runtime library built successfully (with cpp_examples built!).")
 except subprocess.CalledProcessError as e:
     print("Failed to build runtime library.")
     raise SystemExit(e.returncode)

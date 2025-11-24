@@ -191,6 +191,10 @@ if (NOT "${USE_NKI}" STREQUAL "OFF")
   target_compile_definitions(mirage_runtime PUBLIC MIRAGE_FINGERPRINT_USE_CPU)
 endif()
 
+if (NOT "${FAKE_GPU}" STREQUAL "OFF")
+  target_compile_definitions(mirage_runtime PUBLIC MIRAGE_USE_FAKE_CUDA)
+endif()
+
 if (NOT "${USE_FORMAL_VERIFIER}" STREQUAL "OFF")
   target_compile_definitions(mirage_runtime PUBLIC MIRAGE_USE_FORMAL_VERIFIER)
 endif()
@@ -385,7 +389,7 @@ if ("${BUILD_CPP_EXAMPLES}" STREQUAL "ON")
 endif()
 
 # egg_tests
-if("${BUILD_CPP_EXAMPLES}" STREQUAL "ON")
+if("${BUILD_EGG_TEST}" STREQUAL "ON")
   set(CPP_EXAMPLES_DIR cpp_examples)
   set(CPP_EXAMPLES_BIN egg_tests)
   file(GLOB CPP_EXAMPLES_SRCS ${CPP_EXAMPLES_DIR}/${CPP_EXAMPLES_BIN}.cc)

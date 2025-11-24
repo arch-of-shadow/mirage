@@ -27,25 +27,25 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 
 # (Optional) You can add custom configuration to the .zshrc file here.
 # For example, to set a theme (replace 'agnoster' with your desired theme)
-RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc
+# RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc
 
 RUN wget -c https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
-    mv Miniconda3-latest-Linux-x86_64.sh ~/Miniconda3-latest-Linux-x86_64.sh && \
-    chmod +x ~/Miniconda3-latest-Linux-x86_64.sh && \
-    ~/Miniconda3-latest-Linux-x86_64.sh -b -p /opt/conda && \
-    rm ~/Miniconda3-latest-Linux-x86_64.sh
+  mv Miniconda3-latest-Linux-x86_64.sh ~/Miniconda3-latest-Linux-x86_64.sh && \
+  chmod +x ~/Miniconda3-latest-Linux-x86_64.sh && \
+  ~/Miniconda3-latest-Linux-x86_64.sh -b -p /opt/conda && \
+  rm ~/Miniconda3-latest-Linux-x86_64.sh
 
 RUN /opt/conda/bin/conda remove -y --override-channels -c conda-forge conda-anaconda-tos && \
-    /opt/conda/bin/conda install -y --override-channels -c conda-forge \
-    python=3.11 \
-    conda-build \
-    conda-verify \
-    cmake \
-    make \
-    numpy \
-    cython && \
-    /opt/conda/bin/conda clean -ya
-    
+  /opt/conda/bin/conda install -y --override-channels -c conda-forge \
+  python=3.11 \
+  conda-build \
+  conda-verify \
+  cmake \
+  make \
+  numpy \
+  cython && \
+  /opt/conda/bin/conda clean -ya
+
 ENV PATH=/opt/conda/bin:$PATH
 ENV MIRAGE_HOME=/mirage/
 ENV LD_LIBRARY_PATH=/mirage/deps/z3/build/:$LD_LIBRARY_PATH
