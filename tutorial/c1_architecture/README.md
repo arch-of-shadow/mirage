@@ -547,6 +547,47 @@ num_tasks = 0 tasks901, Random tests: 404, Valid mugraphs: 0, Time: 7.874953
 Finished search, discovering 0 mugraphs ...
 ```
 
+There are no valid mugraphs found. It seems the verifier is not working well in FAKE_GPU mode.
+
+When running on a real GPU machine, you can try:
+
+```bash
+python3 demo/demo_rms_norm.py 
+```
+
+It gives:
+
+```
+Mirage::DeviceMemoryManager: gpu_id(0) num_gpus(1)========== Search Configuration ==========
+  max num threadblock graph op: 9
+  max num kernel_graph op: 5
+  max num threadblock graphs: 1
+  max num threadblock graph inputs: 3
+  max num threadblock graph outputs: 2
+  search_thread: 16
+  imaps to explore:
+  imap combs to explore:
+  omaps to explore:
+  grid dims to explore:
+  block dims to explore:
+  fmaps to explore:
+  franges to explore:4 16 64 
+num_thread = 16
+num_tasks = 0 tasks5801, Random tests: 1855, Valid mugraphs: 9, Time: 25.430370
+
+Transpiling 9 muGraphs ...
+muGraph 0: profiled performance (ms) = 0.1168353271484375
+muGraph 1: profiled performance (ms) = 0.0968253402709961
+muGraph 2: profiled performance (ms) = 0.753455078125
+muGraph 3: profiled performance (ms) = 0.10145689392089843
+muGraph 4: profiled performance (ms) = 0.1066618881225586
+muGraph 5: profiled performance (ms) = 0.09312665557861328
+muGraph 6: profiled performance (ms) = 0.10233241271972657
+muGraph 7: profiled performance (ms) = 0.10170265960693359
+muGraph 8: profiled performance (ms) = 0.725074951171875
+Best muGraph run time (ms):  0.09327104187011719
+```
+
 ## Summary
 
 *   **MuGraph** captures the GPU memory hierarchy (Global vs. Shared).
