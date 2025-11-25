@@ -73,3 +73,6 @@ ncu_tmp
 #nsys
 *.nsys-rep
 *.sqlite
+
+#pdfs
+tutorial/**/*.pdf
