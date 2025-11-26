@@ -10,7 +10,15 @@ Clone the mirage repo recursively.
 
 ```bash
 git clone --recursive https://www.github.com/mirage-project/mirage
+# Or maybe you can want to use my fork for tutorial purpose: 
+# git clone --recursive -b uv_tutorial_00 git@github.com:arch-of-shadow/mirage.git
 cd mirage
+```
+
+If you have [qualified environment](../../INSTALL.md) on your machine and don't need a Docker, just run:
+
+```bash
+pip install -e . -v 
 ```
 
 ## 1. Docker

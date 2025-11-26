@@ -603,7 +603,6 @@ class KNGraph:
                     graph_visualization_dir, f"mugraph_{idx}"
                 )
                 g.visualize(file_name)
-            exit(0)
 
         if backend == "cuda":
             # profile and use the best graph
